@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,10 +21,14 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_secret_bearing_jobs_cannot_publish(self):
         implement = self.read("agent-implement.yml")
-        sections = {
-            label: implement.split(f"  {label}:\n", 1)[1].split("\n  ", 1)[0]
-            for label in ("implement", "verify", "publish")
-        }
+        sections = {}
+        for label in ("implement", "verify", "publish"):
+            match = re.search(
+                rf"(?ms)^  {label}:\\n(.*?)(?=^  (?:implement|verify|publish):|\\Z)",
+                implement,
+            )
+            self.assertIsNotNone(match)
+            sections[label] = match.group(1)
         self.assertIn("openai-api-key:", sections["implement"])
         self.assertNotIn("contents: write", sections["implement"])
         self.assertNotIn("openai-api-key:", sections["verify"])
