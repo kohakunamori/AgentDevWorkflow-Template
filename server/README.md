@@ -35,7 +35,7 @@ The controller polls every 90 seconds. SQLite survives Docker restarts via a nam
 - **Manual approval is the production gate:** Issues with `agent:approved` are eligible. Removing the label stops new scheduling, not an already-running workflow (cancel it from Actions).
 - **Deduplication:** one task record per Issue, unique request ID for every dispatch; each workflow run has a request ID in its display title to allow reconciliation.
 - **Isolation:** GitHub Actions creates fresh execution environments and the implementation workflow creates an Issue/run-specific branch. Unlike sharing a folder on one server, workers do not share checkout or package state.
-- **Human merge:** no auto-merge or unattended production release.
+- **Review:** with repository variable \`AGENT_AUTOMATION_ENABLED=true\`, successful Agent implement workflow runs automatically trigger the independent static Review workflow using \`workflow_run\`, even when the Draft PR was created with GitHub's own token. This is *advisory review*, not approval.\n- **Human merge:** no auto-merge or unattended production release.
 - **Idempotency after restarts:** the queue is persistent. The Controller reconnects to known run IDs; for old 204-style dispatch responses it searches workflow run titles.
 - **Uncertainty:** if GitHub accepted a dispatch but the Controller lost its response, it marks the Issue uncertain instead of paying for a potentially duplicate run. Operators must reconcile and reset manually.
 - **Usage budget:** `CONTROLLER_MAX_DAILY` limits dispatched workflows, not OpenAI token cost. Set actual API budget alerts in the OpenAI platform.
