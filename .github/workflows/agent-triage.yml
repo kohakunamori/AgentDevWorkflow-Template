@@ -1,14 +1,19 @@
 name: Agent triage
+run-name: "Triage Issue #${{ inputs.issue_number || github.event.issue.number }}"
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, reopened, labeled]
   workflow_dispatch:
     inputs:
       issue_number:
         description: Existing GitHub Issue number
-        type: string
         required: true
+        type: string
+
+concurrency:
+  group: "agent-triage-issue-${{ inputs.issue_number || github.event.issue.number }}"
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -16,9 +21,14 @@ jobs:
   analyze:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.action == 'labeled' &&
-       github.event.label.name == 'agent:triage' &&
-       vars.AGENT_AUTOMATION_ENABLED == 'true')
+      (vars.AGENT_AUTOMATION_ENABLED == 'true' &&
+       github.event_name == 'issues' &&
+       ((github.event.action == 'labeled' &&
+         github.event.label.name == 'agent:triage') ||
+        ((github.event.action == 'opened' || github.event.action == 'reopened') &&
+         (github.event.issue.author_association == 'OWNER' ||
+          github.event.issue.author_association == 'MEMBER' ||
+          github.event.issue.author_association == 'COLLABORATOR'))))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -32,16 +42,18 @@ jobs:
         with:
           persist-credentials: false
       - id: context
-        name: Read Issue into a data file (untrusted)
+        name: Read issue data
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+        shell: bash
         run: |
-          [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]
+          set -euo pipefail
+          [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]
           echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
-          gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,comments,labels,state > agent-context.json
+          gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json number,title,body,comments,labels,state > agent-context.json
       - id: codex
-        name: Read-only Codex triage
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -56,11 +68,13 @@ jobs:
     permissions:
       issues: write
     steps:
-      - name: Post triage proposal
+      - name: Post triage findings (not an implementation authorization)
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ needs.analyze.outputs.issue_number }}
           AGENT_MESSAGE: ${{ needs.analyze.outputs.final_message }}
+        shell: bash
         run: |
           printf '%s\n' "$AGENT_MESSAGE" > /tmp/triage.md
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/triage.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body-file /tmp/triage.md
