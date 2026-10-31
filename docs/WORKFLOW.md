@@ -1,37 +1,42 @@
-# System design and lifecycle
+# Agent-driven engineering workflow
 
-The goal is **engineering leverage with auditability**, not unlimited autonomous authority.
+The goal is **auditable engineering throughput with safe boundaries**, not unrestricted autonomy.
 
-## States
+## Lifecycle
 
-`NEW → TRIAGED → APPROVED → IMPLEMENTING → DRAFT_PR → CI_GREEN → REVIEWED → HUMAN_APPROVED → MERGED → RELEASED`.
+`ISSUE → TRIAGED → MAINTAINER_APPROVED → AGENT_IMPLEMENT → VERIFIED → DRAFT_PR → CI → INDEPENDENT_REVIEW → HUMAN_MERGE → MANUAL_RELEASE → LESSONS`
 
-A failure routes to `BLOCKED` with an Issue, reproduction evidence and an owner, not a fictitious green test. Every transition has an observable artifact: Issue comment, patch, PR, CI log, review, tag, or release.
+- A trusted author's Issue opens: triage may run automatically (opt-in).
+- A maintainer marks the Issue `agent:approved`: implementation launches immediately through GitHub Actions.
+- Each job gets a fresh GitHub-hosted runner. Coding cannot push; it exports a patch artifact.
+- A distinct **read-only verifier** runs tests with the proposed code and without API credentials.
+- A distinct **publisher** validates and applies the patch with scoped write permission, then opens a Draft PR and explicitly dispatches PR-head CI.
+- A read-only model job independently reviews the PR diff; its comment is not a GitHub approval.
+- A human controls merging, releasing, dependency/security policy, and credential changes.
+- A scheduled retrospective proposes new lessons based on actual evidence.
 
-## Components
+The default pipeline is **serverless**: there is no required NAS/VPS. Refer to [SERVERLESS.md](SERVERLESS.md). The [optional SQLite Controller](../server/README.md) adds central queuing, not basic event triggering.
 
-| Component | Actor | Input | Artifact | Permission |
-|---|---|---|---|---|
-| Intake | Human / Issues | Bug / request | Issue | Issues write |
-| Triage | Codex Agent | Issue JSON | Triage comment | Read-only AI job; write-only post job |
-| Implementation | Codex Agent | Approved Issue | Workspace diff | Read-only GitHub token |
-| Patch publisher | GitHub Actions | Validated patch | Draft PR | Contents + PR write |
-| CI | Deterministic tests | PR commit | Pass / fail | Read-only |
-| Independent review | Codex Agent | PR patch and base | Review comment | Read-only AI job |
-| Merge | Human | CI + review | Merge commit | Human |
-| Release | Human + Actions | Version and tested main | GitHub Release | Contents write |
-| Retrospective | Codex Agent | Git history, PR titles | Lessons proposal | Read-only AI job |
+## Agent responsibilities
 
-## Isolation and provenance
+| Role | Input | Output | Minimum evidence |
+|---|---|---|---|
+| Triage | Full Issue and comments | Reproduction/plan comment | Reproduction steps and unknowns |
+| Implement | Authorized Issue | Candidate patch | Regression and actual executed tests |
+| Verify | Patch artifact | Test run log | Passing command/exit code at exact source |
+| Publish | Validated patch | Draft PR | Allowed paths, tree and head SHA |
+| Review | Trusted base + PR diff | Independent advice | Concrete findings, untested cases |
+| Maintainer | CI and review record | Merge/release decision | Real approval and risk acceptance |
+| Retrospective | Recent commits/PRs | Lessons proposal | Linked incidents, dates, prevention |
 
-One agent session per worktree. Do not let two agents commit from a single checkout, as changes may be attributed to the wrong task. Evidence must match exact tree and revision. For bug fixes, tests should fail before and pass after; reviewers should break the fix deliberately in an isolated sandbox.
+## Isolation and multi-agent consistency
 
-The implementation job cannot push because credentials are read-only and checkout does not persist credentials. Its output is a patch. A distinct publishing job with a GitHub write token performs structural checks then opens a **Draft** PR. AI review similarly separates generation from posting.
+Never share an editable checkout across simultaneous Agents. GitHub runners isolate files, tool processes and branches per Issue; the generated branch is named `agent/issue-<number>-run-<id>`. GitHub Actions `concurrency` serializes duplicate work for one Issue. If a prior generated Draft PR is open, the coding workflow stops before incurring model cost.
 
-## Human checkpoints
+Errors and uncertain claims should become actionable Issues, not ignored red checks. When reviewing a bug fix, verify that the proposed regression fails on old code and passes on the candidate code. Tests and docs must correspond to the reviewed SHA.
 
-Humans authorize coding, CI/policy changes, secrets, protected files, dependencies, merges, and releases. Reducing privileges and using GitHub rulesets matters more than how many agents are running. See [security policy](REVIEW_POLICY.md).
+## Governance
 
-## Retrospective rules
+All automatic paid paths require opt-in through `AGENT_AUTOMATION_ENABLED`. New Issues from public outsiders do not directly trigger paid models. Sensitive paths (`.github/`, scripts, dependencies, releases, permissions, infrastructure, secrets) require explicit human involvement. The generated patch validator allows only `src/`, `tests/`, `docs/` and `examples/`.
 
-The nightly agent reviews recent commits and regressions, then creates a **proposal** with evidence links. No agent is allowed to rewrite standards based on a single incident. After three *separate dates* of a documented failure pattern, propose updating standards through a reviewed PR. See [lessons](LESSONS.md).
+For [CODE_STANDARDS.md](CODE_STANDARDS.md) updates, record at least three independent dates of the same verified failure pattern in [LESSONS.md](LESSONS.md), then propose a reviewed PR. Do not automatically change engineering rules based on a single AI opinion.

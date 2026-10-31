@@ -7,6 +7,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = (
     "README.md",
+    "docs/SERVERLESS.md",
+    "scripts/validate_agent_issue.py",
+    "scripts/check_existing_pr.py",
+    "tests/test_agent_policy.py",
     "server/controller.py",
     "server/Dockerfile",
     "server/compose.yml",

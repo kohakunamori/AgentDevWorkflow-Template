@@ -1,12 +1,14 @@
-# 24/7 Issue Controller (optional)
+# Optional 24/7 Issue Controller (serverless Actions is the default)
 
-This is the **always-on missing layer** in the template. It is a small Python service, deployable to Linux NAS/VPS with Docker Compose. No Python dependencies, no webhook public port, no exposed HTTP endpoint.
+This is an **optional persistent queue**. Basic event-triggered triage, coding, CI, review and retrospective already work on [GitHub Actions alone](../docs/SERVERLESS.md), without a private server. It is a small Python service, deployable to Linux NAS/VPS with Docker Compose. No Python dependencies, no webhook public port, no exposed HTTP endpoint.
 
 ## Real architecture
 
 `GitHub Issue + agent:approved` → persistent SQLite queue → Controller dispatches `agent-implement.yml` → each GitHub-hosted runner uses its own isolated filesystem, Codex invocation and per-run branch → guarded Draft PR → CI → optional independent Agent review → **human merge**.
 
 The Controller does **not** run Codex locally or clone untrusted code. It is a dispatcher. Workers run in **GitHub-hosted ephemeral Actions VMs**, not as shared processes on your NAS. That offers isolation without running Docker-in-Docker or exposing the NAS Git credential to LLM processes.
+
+> Do **not** run both this Controller and direct GitHub `agent:approved` label dispatch for the same Issue without coordinating. The per-Issue concurrency guard is not a distributed exactly-once queue.
 
 ## Quick start (Linux)
 
