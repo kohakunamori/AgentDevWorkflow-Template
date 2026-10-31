@@ -1,0 +1,66 @@
+name: Agent triage
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Existing GitHub Issue number
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  analyze:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' &&
+       github.event.label.name == 'agent:triage' &&
+       vars.AGENT_AUTOMATION_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      issue_number: ${{ steps.context.outputs.issue_number }}
+      final_message: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: context
+        name: Read Issue into a data file (untrusted)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,comments,labels,state > agent-context.json
+      - id: codex
+        name: Read-only Codex triage
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: agents/TRIAGE.md
+
+  post:
+    needs: analyze
+    if: needs.analyze.outputs.final_message != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Post triage proposal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ needs.analyze.outputs.issue_number }}
+          AGENT_MESSAGE: ${{ needs.analyze.outputs.final_message }}
+        run: |
+          printf '%s\n' "$AGENT_MESSAGE" > /tmp/triage.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/triage.md

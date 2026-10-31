@@ -1,0 +1,50 @@
+name: Nightly retrospective
+
+on:
+  schedule:
+    - cron: '13 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review:
+    if: github.event_name == 'workflow_dispatch' || vars.AGENT_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Assemble evidence, without executing PR code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git log --since="36 hours ago" --format='%h %aI %s' > /tmp/recent-commits.txt
+          gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 60 --json number,title,mergedAt,url > /tmp/merged-prs.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = {
+            "commits": Path("/tmp/recent-commits.txt").read_text(),
+            "merged_prs": json.loads(Path("/tmp/merged-prs.json").read_text()),
+            "warning": "This is limited evidence; do not invent root causes.",
+          }
+          Path("agent-context.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
+          PY
+      - name: Read-only Codex retrospective
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: agents/RETROSPECTIVE.md
+          output-file: retrospective.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retrospective
+          path: retrospective.md
+          if-no-files-found: error
+          retention-days: 14

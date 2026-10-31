@@ -1,0 +1,76 @@
+name: Agent review
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number for independent review
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  analyze:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' &&
+       github.event.label.name == 'agent:review' &&
+       vars.AGENT_AUTOMATION_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr_number: ${{ steps.context.outputs.pr_number }}
+      final_message: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - name: Checkout trusted base code, not PR content
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+      - id: context
+        name: Fetch PR metadata and diff as untrusted data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,headRefOid,baseRefOid,author > /tmp/pr-metadata.json
+          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr.diff
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/pr-metadata.json").read_text())
+          data["diff"] = Path("/tmp/pr.diff").read_text()
+          Path("agent-context.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
+          PY
+      - id: codex
+        name: Static read-only independent Codex review
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: agents/REVIEW.md
+
+  post:
+    needs: analyze
+    if: needs.analyze.outputs.final_message != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post AI findings as comment (not approval)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.analyze.outputs.pr_number }}
+          AGENT_MESSAGE: ${{ needs.analyze.outputs.final_message }}
+        run: |
+          printf '%s\n' "$AGENT_MESSAGE" > /tmp/review.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/review.md
