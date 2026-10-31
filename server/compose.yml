@@ -1,0 +1,34 @@
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: agentdevworkflow-controller:local
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      GITHUB_REPOSITORY: "${GITHUB_REPOSITORY:?Set GITHUB_REPOSITORY in .env}"
+      GH_TOKEN: "${GH_TOKEN:?Set a scoped GH_TOKEN in .env}"
+      CONTROLLER_DATABASE: "/data/controller.sqlite3"
+      CONTROLLER_DISPATCH_ENABLED: "${CONTROLLER_DISPATCH_ENABLED:-false}"
+      CONTROLLER_APPROVAL_LABEL: "${CONTROLLER_APPROVAL_LABEL:-agent:approved}"
+      CONTROLLER_POLL_SECONDS: "${CONTROLLER_POLL_SECONDS:-90}"
+      CONTROLLER_MAX_PARALLEL: "${CONTROLLER_MAX_PARALLEL:-2}"
+      CONTROLLER_MAX_DAILY: "${CONTROLLER_MAX_DAILY:-10}"
+      CONTROLLER_MAX_ATTEMPTS: "${CONTROLLER_MAX_ATTEMPTS:-2}"
+      CONTROLLER_RETRY_SECONDS: "${CONTROLLER_RETRY_SECONDS:-900}"
+    volumes:
+      - controller-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-m", "server.controller", "--health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  controller-data:
