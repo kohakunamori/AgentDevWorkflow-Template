@@ -25,6 +25,12 @@ flowchart TD
   M --> N[LESSONS and standards]
 ```
 
+## 24/7 always-on Issue controller (optional)
+
+Unlike label-triggered workflows, the optional [Docker Controller](server/README.md) continuously polls approved GitHub Issues, maintains a durable SQLite queue, limits concurrency and daily dispatches, retries failed workers, and dispatches an **isolated GitHub Actions runner per Issue**. This is the recommended example for running multiple agents unattended while keeping human merge control. Default is safe dry-run.
+
+GitHub itself hosts and isolates workers; the Controller runs on your NAS/VPS only as the scheduler, not as a shared source checkout or model execution process. See [setup](server/README.md).
+
 ## Start here
 
 1. Click **Use this template → Create a new repository**.

@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -327,6 +326,7 @@ def main() -> int:
     # Single-host single-writer. Docker Compose starts one controller; do not
     # deploy multiple controllers against one database on different hosts.
     lock_path = config.database + ".lock"
+    import fcntl  # Linux only; the Compose image runs on Linux.
     with open(lock_path, "a", encoding="utf-8") as lockfile:
         try:
             fcntl.flock(lockfile.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -1,0 +1,13 @@
+.git/
+.github/
+.env
+.env.*
+**/.env
+**/.env.*
+!server/.env.example
+**/__pycache__/
+**/*.pyc
+tests/
+docs/
+examples/
+node_modules/

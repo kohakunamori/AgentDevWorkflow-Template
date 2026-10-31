@@ -7,6 +7,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = (
     "README.md",
+    "server/controller.py",
+    "server/Dockerfile",
+    "server/compose.yml",
+    "server/README.md",
     "AGENTS.md",
     "docs/SETUP.md",
     "docs/WORKFLOW.md",

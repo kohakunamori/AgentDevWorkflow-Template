@@ -1,8 +1,17 @@
 name: Agent implement
+run-name: "Implement Issue #${{ inputs.issue_number }} [req:${{ inputs.request_id || github.run_id }}]"
+
+concurrency:
+  group: "agent-implement-issue-${{ inputs.issue_number }}"
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: Unique controller dispatch token (optional)
+        type: string
+        required: false
       issue_number:
         description: Approved Issue number to implement
         required: true

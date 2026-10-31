@@ -32,7 +32,11 @@ Choose **Use this template**. Pick a new name and appropriate visibility. Copy f
 - Let CI run, add `agent:review` to that PR; inspect the AI's independent review.
 - Confirm behavior yourself, then merge manually. Run **Release** manually using a semantic version.
 
-## 6. Safety caveats
+## 6. Optional always-on controller
+
+The [24/7 Controller](../server/README.md) is the missing central scheduler for continuous Issue processing. It polls maintainer-approved Issues and dispatches independent GitHub Actions workers. It keeps persistent state, handles retries and limits concurrency; it is **not** needed for manual operation.
+
+## 7. Safety caveats
 
 - External Issue text, PR diffs and Codex-generated patches are untrusted inputs. The sample isolates model jobs from jobs with write tokens; its patch publisher only permits source/tests/docs paths and rejects symlinks and oversized patches. Never relax these guards without a security review.
 - The Codex action controls its API proxy and sandbox; always review [upstream security notes](https://github.com/openai/codex-action#safety-strategy).
