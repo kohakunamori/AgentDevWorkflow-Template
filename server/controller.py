@@ -122,7 +122,7 @@ class GitHubAPI:
                     continue
                 labels = {x.get("name") for x in item.get("labels", []) if isinstance(x, dict)}
                 number = item.get("number")
-                if isinstance(number, int) and label in labels and "agent:blocked" not in labels:
+                if isinstance(number, int) and label in labels and "agent:blocked" not in labels and "status:blocked" not in labels:
                     found.append(number)
             if len(data) < 100:
                 break
