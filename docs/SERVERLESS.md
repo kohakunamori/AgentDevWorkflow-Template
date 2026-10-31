@@ -11,12 +11,12 @@
 | `issues.labeled: agent:approved` | Agent implement | Automation enabled; Issue open, not blocked; no existing Agent PR |
 | `workflow_dispatch` | Agent triage / implement / review | Manually authorized by a user with appropriate repository permissions |
 | `pull_request.opened/synchronize/reopened` | Agent review | Automation enabled; trusted same-repository PR (not an untrusted fork) |
-| `pull_request.labeled: agent:review` | Agent review | Automation enabled; maintainer-requested review |
+| `pull_request.labeled: agent:review` | Agent review | Automation enabled; **same-repository PR only**. For forks, use manual dispatch. |
 | `workflow_run.completed` for Agent implement | Agent review | Automation enabled; implementation succeeded |
 | `workflow_dispatch` after Draft PR creation | CI | Publisher starts CI on the **actual PR branch** |
 | Scheduled daily | Nightly retrospective | Automation enabled; artifact proposal, not direct policy edits |
 
-Public outsiders may report Bugs without being able to spend your API budget. Maintainers can explicitly label and authorize their reports for triage or implementation.
+Public outsiders may report Bugs without being able to spend your API budget. Fork PRs are not automatically reviewed using a secret-bearing `pull_request` workflow; maintainers can use **Actions → Agent review → Run workflow** with the PR number (trusted default-branch checkout, diff as untrusted data). Maintainers can explicitly label and authorize their reports for triage or implementation.
 
 ## Standard setup (no VPS)
 

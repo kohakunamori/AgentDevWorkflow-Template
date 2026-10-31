@@ -30,7 +30,7 @@ Follow [WALKTHROUGH.md](../examples/WALKTHROUGH.md) for a small `count_pending` 
 - **Verify failed?** Read the exact red test. Nothing is published until the verification job succeeds.
 - **No PR?** Inspect the verified patch paths, producer artifact and publisher log. A no-op patch or forbidden workflow edit is rejected.
 - **PR generated but no CI?** Search Actions for a `CI` `workflow_dispatch` run on the `agent/issue-N-run-ID` branch. This bypasses GitHub's `GITHUB_TOKEN` event suppression.
-- **No independent review?** Enable automation and check that the PR/run matches an eligible trigger. Codex Action enforces actor permissions; the workflow-run review only allowlists `github-actions[bot]`.
+- **No independent review?** Fork PRs cannot use the secret in ordinary `pull_request` workflows; manually dispatch **Agent review** from the Actions tab with the PR number. Otherwise enable automation and check that the PR/run matches an eligible trigger. Codex Action enforces actor permissions; the workflow-run review only allowlists `github-actions[bot]`.
 - **Private server needed?** No. The [optional Controller](../server/README.md) adds persistent backlog state and quotas but should not be started alongside direct issue-label dispatch for the same Issues.
 
 Refer to [SERVERLESS.md](SERVERLESS.md) for the complete trigger/permission matrix.

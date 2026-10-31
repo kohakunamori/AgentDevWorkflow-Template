@@ -32,7 +32,7 @@ No NAS, VPS, webhook listener, database or always-on agent process is needed for
 5. Run **Bootstrap labels** from the Actions tab once.
 6. Create a bug or feature Issue. A trusted repository owner's/member's/collaborator's new Issue triggers triage when automation is on; external users require a maintainer-added `agent:triage` label.
 7. Review the Issue, then add `agent:approved`. The coding workflow starts automatically and produces a Draft PR if the patch passes verification.
-8. The publisher explicitly dispatches deterministic CI for that PR branch. An independent review Agent provides advisory feedback. **A human must still authorize merge and release.**
+8. The publisher explicitly dispatches deterministic CI for that PR branch. An independent review Agent provides advisory feedback. External fork PRs require a maintainer's manual **Agent review** dispatch, because ordinary fork PR events do not receive API secrets. **A human must still authorize merge and release.**
 
 Detailed instructions: [Setup](docs/SETUP.md) · [Serverless trigger matrix](docs/SERVERLESS.md) · [Architecture](docs/WORKFLOW.md) · [Learning walkthrough](examples/WALKTHROUGH.md).
 
