@@ -1,76 +1,69 @@
 # AgentDevWorkflow Template
 
-A **usable GitHub repository template** for learning and reusing an agent-driven development loop inspired by [Magpie](https://github.com/yetone/magpie).
-
-> 中文：这是一个可实际运行的 AI Agent 软件工程模板，不只是提示词合集。用 **Use this template** 创建新仓库后，可以从 Issue → 分诊 → Codex 编码 → Draft PR → CI → 独立 AI Review → 人工合并 → 手动 Release → 每日复盘，走完整个流程。
+> 可复用的 GitHub AI Agent 开发工作流模板，参考 [Magpie](https://github.com/yetone/magpie) 的工程纪律，以 **GitHub Actions 无服务器编排**为默认路线。
 >
-> **Security by design:** No autonomous merge, no secret-dependent code executed on incoming PRs, no scheduled API spending until you opt in. GitHub Actions AI jobs require your own `OPENAI_API_KEY` secret; a ChatGPT subscription or Magpie account is **not** an API key.
+> **Use this template** 创建新项目，即可套用 Issue 分诊、Agent 编码、隔离验证、Draft PR、独立审查、人工合并、发布与定期复盘流程。默认**不**消耗模型 API 额度。
 
-## Lifecycle
+## Architecture: serverless first
 
 ```mermaid
 flowchart TD
-  A[Issue submitted] --> B{Maintainer authorizes agent:triage}
-  B --> C[AI triage comment]
-  C --> D{Maintainer approves implementation}
-  D --> E[Manual Agent Implement workflow]
-  E --> F[Patch gate and Draft PR]
-  F --> G[CI and tests]
-  G --> H{Maintainer labels agent:review}
-  H --> I[Independent AI review]
-  I --> J{Human code review and sign-off}
-  J --> K[Merge]
-  K --> L[Manual release]
-  K --> M[Daily lesson review]
-  M --> N[LESSONS and standards]
+    A[Trusted GitHub Issue opened] --> B[AI Triage]
+    B --> C{Maintainer adds agent:approved}
+    C --> D[Codex implement — isolated Actions runner]
+    D --> E[Verify patch and tests — no secrets]
+    E --> F[Publish Draft PR — no untrusted code execution]
+    F --> G[Dispatch CI on PR branch]
+    F --> H[Independent AI static review]
+    G --> I{Human approval / merge}
+    H --> I
+    I --> J[Manual release]
+    J --> K[Daily retrospective and LESSONS.md]
 ```
 
-## 24/7 always-on Issue controller (optional)
+No NAS, VPS, webhook listener, database or always-on agent process is needed for this standard route. GitHub creates an ephemeral runner when a matching event occurs. The [optional Controller](server/README.md) is for teams wanting a persistent SQLite queue, centralized retry budgets and longer-lived scheduling policies.
 
-Unlike label-triggered workflows, the optional [Docker Controller](server/README.md) continuously polls approved GitHub Issues, maintains a durable SQLite queue, limits concurrency and daily dispatches, retries failed workers, and dispatches an **isolated GitHub Actions runner per Issue**. This is the recommended example for running multiple agents unattended while keeping human merge control. Default is safe dry-run.
+## Quick start
 
-GitHub itself hosts and isolates workers; the Controller runs on your NAS/VPS only as the scheduler, not as a shared source checkout or model execution process. See [setup](server/README.md).
+1. Select **Use this template → Create a new repository**.
+2. Run `python -m unittest discover -s tests -v` locally for a no-cost smoke test.
+3. Create a dedicated OpenAI API credential and save it as GitHub Actions secret `OPENAI_API_KEY`. Your Codex subscription or Magpie login is not an API key.
+4. Set the repository Actions **variable** `AGENT_AUTOMATION_ENABLED=true` when you explicitly want automatic paid model runs. Leave unset for manual-only use.
+5. Run **Bootstrap labels** from the Actions tab once.
+6. Create a bug or feature Issue. A trusted repository owner's/member's/collaborator's new Issue triggers triage when automation is on; external users require a maintainer-added `agent:triage` label.
+7. Review the Issue, then add `agent:approved`. The coding workflow starts automatically and produces a Draft PR if the patch passes verification.
+8. The publisher explicitly dispatches deterministic CI for that PR branch. An independent review Agent provides advisory feedback. External fork PRs require a maintainer's manual **Agent review** dispatch, because ordinary fork PR events do not receive API secrets. **A human must still authorize merge and release.**
 
-## Start here
+Detailed instructions: [Setup](docs/SETUP.md) · [Serverless trigger matrix](docs/SERVERLESS.md) · [Architecture](docs/WORKFLOW.md) · [Learning walkthrough](examples/WALKTHROUGH.md).
 
-1. Click **Use this template → Create a new repository**.
-2. Read [Setup](docs/SETUP.md), [Architecture/workflow](docs/WORKFLOW.md) and [AGENTS.md](AGENTS.md).
-3. Run locally: `python -m unittest discover -s tests -v` and `python scripts/check_template.py`.
-4. GitHub → Settings → Secrets and variables → Actions: add **secret** `OPENAI_API_KEY`. Set repository **variable** `AGENT_AUTOMATION_ENABLED=true` when you are ready for label-triggered/scheduled AI actions.
-5. Actions → **Bootstrap labels** → Run workflow (once per new repo); or run `bash scripts/bootstrap_labels.sh` with a logged-in `gh`.
-6. Open a bug or feature issue. A maintainer adds `agent:triage` to trigger the triage agent; or manually runs **Agent implement** with the Issue number to create a proposed Draft PR.
-7. After CI, a maintainer adds `agent:review` to the PR for independent review. Merge only after human review.
-8. Run **Release** manually for a tag; **Nightly retrospective** generates a lessons proposal (automatic only if enabled).
+## What is in the repository?
 
-**Teaching demo:** [sample app](src/demo_tasks.py), [tests](tests/test_demo_tasks.py), [walkthrough](examples/WALKTHROUGH.md), [sample Issue](examples/BUG_EXAMPLE.md), [sample retrospective](examples/LESSON_EXAMPLE.md).
+| Area | Location | Purpose |
+|---|---|---|
+| Agent entrypoint | [AGENTS.md](AGENTS.md) | Scope, read order, behavioral contract |
+| Role prompts | [agents/](agents/) | Triage, coding, review, retrospective, release |
+| Standards | [docs/CODE_STANDARDS.md](docs/CODE_STANDARDS.md) | Evidence-driven implementation and testing |
+| Security | [docs/REVIEW_POLICY.md](docs/REVIEW_POLICY.md) | Trust boundaries, approvals, dangerous changes |
+| Lessons | [docs/LESSONS.md](docs/LESSONS.md) | Review mistakes, promote repeat issues to rules |
+| Automation | [.github/workflows/](.github/workflows/) | 7 separate workflows |
+| Demo | [src/](src/), [tests/](tests/) | Standard-library Python example and tests |
+| Patch gate | [scripts/verify_agent_patch.py](scripts/verify_agent_patch.py) | Reject unsafe paths, symlinks and binary patches |
+| Optional service | [server/](server/) | NAS/VPS polling Controller, **not required** |
 
-## What's included
+## Important security boundaries
 
-| Layer | Files |
-|---|---|
-| Agent rules | [AGENTS.md](AGENTS.md), [agents/](agents/) |
-| Governance and review | [docs/](docs/) |
-| User intake | [Issue templates](.github/ISSUE_TEMPLATE/), [PR template](.github/pull_request_template.md) |
-| Executable automation | [Actions](.github/workflows/) |
-| Demo and checks | [src/](src/), [tests/](tests/), [scripts/](scripts/) |
-| Learning path | [examples/](examples/) |
+- All event-triggered AI work requires `AGENT_AUTOMATION_ENABLED=true`. Public strangers opening Issues cannot automatically spend your model budget.
+- A maintainer's `agent:approved` label enables coding, not merging.
+- The Codex step has read-only repository credentials and a restricted workspace sandbox; the generated patch is verified by a **different job with no API secret**.
+- The publishing job can create a Draft PR and dispatch CI, but **does not execute generated code**.
+- The AI review reads trusted base code and untrusted PR diff as data; review comments are advisory, not approvals.
+- Branch protection, budgets, billing alerts, secrets, repository permissions, and human approval are configured independently in each copied repository. No template can automatically transplant those settings.
+- `GITHUB_TOKEN`-generated PR events might not trigger `pull_request` CI. The publisher explicitly invokes `workflow_dispatch` for CI on the new branch.
 
-## Safety model
+## Limits
 
-- **Only maintainers can initiate expensive or write-capable agent runs.** Label triggers additionally require `AGENT_AUTOMATION_ENABLED=true`, and the Codex action independently checks actor write permissions.
-- Agent implementation runs with read-only GitHub credentials, a restricted Codex workspace sandbox, and no publish token. A **separate job** validates the generated patch and opens a **Draft PR**, never merges.
-- AI review and triage separate read-only model jobs from write-authorized posting jobs.
-- Never use `pull_request_target` to execute PR code or give API secrets to untrusted PRs.
-- Treat model output as untrusted; review everything even if CI passes. A workflow may propose changes to `docs/`, `src/` and `tests/`; new workflow/security changes require human-created PRs.
-- The template does not automatically configure branch protections or required reviews; configure those in your new repo.
+The real paid AI path requires a valid `OPENAI_API_KEY` with billing; passing local tests or CI does **not** prove that a live model invocation succeeded. Default CI validates the example Python project only: adapt it for each derived project's stack. Runner concurrency is handled by Actions per Issue, but global cost budgeting is the responsibility of your OpenAI account or the [optional Controller](server/README.md).
 
-## Limitations
+## Acknowledgements
 
-- Agent workflows require GitHub-hosted Ubuntu runners and an OpenAI API key with available billing. They are not powered by your Codex subscription.
-- AI proposals are best-effort, may be wrong, and are subject to spend and platform limits. Labels or manual dispatch create proposals, **not guarantees** of successful fixes.
-- GitHub Actions cannot by itself turn a PR into a merge approval that satisfies human sign-off. CI passing is not a release.
-- This is a generic Python demonstration; replace the demo with your own stack and tests when making a new project.
-
-## Attribution
-
-Original educational adaptation inspired by these publicly available Magpie documents: [AGENTS.md](https://github.com/yetone/magpie/blob/main/AGENTS.md), [code-standards.md](https://github.com/yetone/magpie/blob/main/docs/code-standards.md), [LESSONS.md](https://github.com/yetone/magpie/blob/main/LESSONS.md), and [contributors.md](https://github.com/yetone/magpie/blob/main/docs/contributors.md). No proprietary workflow engine or unverified private orchestration code is represented here. License: MIT.
+An original educational adaptation of the public engineering practices in Magpie's [AGENTS.md](https://github.com/yetone/magpie/blob/main/AGENTS.md), [code standards](https://github.com/yetone/magpie/blob/main/docs/code-standards.md), [LESSONS.md](https://github.com/yetone/magpie/blob/main/LESSONS.md), and [contributors guide](https://github.com/yetone/magpie/blob/main/docs/contributors.md). This template does **not** claim to reproduce Magpie's private orchestration infrastructure. License: MIT.

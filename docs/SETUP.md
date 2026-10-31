@@ -1,50 +1,36 @@
-# Setup & enablement checklist
+# Setup guide
 
-## 1. Create a repository from this template
+## Fast path: GitHub-hosted, no server
 
-Choose **Use this template**. Pick a new name and appropriate visibility. Copy files, not old Issues/PRs/labels/secret values. GitHub template duplication doesn't automatically install labels, secrets, environment protections or branch protection rules.
+1. Click **Use this template** on the source repository. Template copies contain code, not its old Issues, labels, secrets, branch rules or runtime credentials.
+2. Test locally: `python -m unittest discover -s tests -v`, `python scripts/check_template.py`. Python 3.11+ recommended.
+3. Ensure GitHub Actions is enabled. Approve needed actions per your organization rules: `openai/codex-action@v1`, checkout, Python setup, upload/download artifact.
+4. Add **Actions secret** `OPENAI_API_KEY`. Use a purpose-specific API key with suitable usage/billing limits, never an Issue text or repository variable.
+5. Run **Bootstrap labels** from Actions once. This creates `agent:triage`, `agent:approved`, `agent:review`, `agent:blocked` and task labels.
+6. Set repository Actions variable `AGENT_AUTOMATION_ENABLED=true` **only when ready to spend API tokens**. With it off, human `workflow_dispatch` actions can still be used.
+7. New trusted-author Issues auto-trigger triage. External reporters need a maintainer-applied `agent:triage`. To start Coding Agent, a maintainer adds `agent:approved` to an open Issue.
+8. Watch **Agent implement** jobs: `implement` generates a patch, `verify` tests it without secrets, and `publish` makes a Draft PR if verification succeeded. Normal `pull_request` events from Actions Bot might not trigger; the publisher explicitly dispatches CI on the new PR branch.
+9. The independent review workflow comments on eligible PRs/updates and successful agent-created PRs. **Review the actual changes yourself** before merge.
+10. Run **Release** manually from the intended verified main branch and inspect published assets. The retrospective workflow generates an artifact for manual LESSONS promotion.
 
-## 2. Local smoke test
+## Recommended manual configuration
 
-- Python >= 3.11 and Git.
-- Run `python -m unittest discover -s tests -v`, then `python scripts/check_template.py`.
-- `gh auth status` if you want to use bootstrap scripts; never paste auth tokens into Issues or chat.
+Use GitHub Settings → Rulesets / Branch protection to require a PR, required `CI` check(s), and human approval before `main` changes. Restrict pushes, force pushes and bypasses. The template cannot transfer these repository settings.
 
-## 3. Enable GitHub Actions
+Set OpenAI platform budget alerts. The feature flag is an on/off switch, **not** a daily token/dollar budget. Keep `OPENAI_API_KEY` in GitHub Actions Secrets; nothing in the optional Controller requires it.
 
-- Settings → Actions → General: allow chosen trusted actions. If policies restrict actions, approve `openai/codex-action@v1`, `actions/checkout@v4`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, and `actions/setup-python@v5`.
-- Add repository **Actions secret** `OPENAI_API_KEY` with a dedicated API key. Do not paste keys into any source file or Issues.
-- Optional repository **variable** `AGENT_AUTOMATION_ENABLED=true`: enables label-triggered triage, review, and scheduled retrospective. Leave unset or false to prevent automatic API spending. Manually dispatched Agent runs still require the secret and authorization.
-- Run the **Bootstrap labels** workflow once. It creates `agent:triage`, `agent:review`, `type:bug`, `type:feature` and `status:blocked`. Only users who can apply labels can trigger the event-driven agents.
-- Set your budget and API usage alerts in the OpenAI platform separately. The sample does not enforce an API spend cap.
+## Learning exercise
 
-## 4. Protect main (GitHub settings, not replicated in template)
-
-- Settings → Branch rules / Rulesets: require a PR, required CI check, and (preferably) at least one real human approval before merging to `main`.
-- Restrict force pushes, branch deletion and bypass rules. Set CODEOWNERS to real people, not a bot, once your repository has maintainers.
-- Set default workflow permissions to the minimum your organization allows. Individual jobs request explicit permissions; the Code Publishing job needs contents and pull-requests write.
-
-## 5. Try the demonstration
-
-- Open a `Bug report` Issue using the template.
-- Add `agent:triage` after reviewing the report (requires variable enabled) and inspect the comment.
-- Actions → **Agent implement** → Run workflow → specify Issue number. The action should produce a Draft PR.
-- Let CI run, add `agent:review` to that PR; inspect the AI's independent review.
-- Confirm behavior yourself, then merge manually. Run **Release** manually using a semantic version.
-
-## 6. Optional always-on controller
-
-The [24/7 Controller](../server/README.md) is the missing central scheduler for continuous Issue processing. It polls maintainer-approved Issues and dispatches independent GitHub Actions workers. It keeps persistent state, handles retries and limits concurrency; it is **not** needed for manual operation.
-
-## 7. Safety caveats
-
-- External Issue text, PR diffs and Codex-generated patches are untrusted inputs. The sample isolates model jobs from jobs with write tokens; its patch publisher only permits source/tests/docs paths and rejects symlinks and oversized patches. Never relax these guards without a security review.
-- The Codex action controls its API proxy and sandbox; always review [upstream security notes](https://github.com/openai/codex-action#safety-strategy).
-- A real project must customize build/test commands, provenance checks and environments. Do not run third-party install scripts or privileged deployment inside AI jobs.
+Follow [WALKTHROUGH.md](../examples/WALKTHROUGH.md) for a small `count_pending` feature. The demo deliberately avoids third-party package installs, expensive systems and side effects.
 
 ## Troubleshooting
 
-- No agent run? Check the Actions workflow was enabled, label exists, maintainer applied it, `AGENT_AUTOMATION_ENABLED` is exactly `true`, and `OPENAI_API_KEY` is set.
-- Codex error? Review the failed job logs (avoid posting sensitive details); verify API billing and permissions.
-- No PR? Inspect `agent.patch` and the publish job's safety guard. Changes outside allowlisted directories are intentionally rejected. A no-op Codex response also produces no PR.
-- Reused template with different language? Update CI and source/tests allowlist before invoking the coding agent.
+- **No AI workflow?** Verify repository Actions are enabled, `AGENT_AUTOMATION_ENABLED` equals `true`, the triggering actor is trusted, the label matches, and the API secret exists. Public nonmember Issues do not auto-spend.
+- **Implement is skipped?** Verify the Issue is open, not blocked, and not already represented by an open `agent/issue-N-run-*` PR. The Issue label is a human authorization gate.
+- **Verify failed?** Read the exact red test. Nothing is published until the verification job succeeds.
+- **No PR?** Inspect the verified patch paths, producer artifact and publisher log. A no-op patch or forbidden workflow edit is rejected.
+- **PR generated but no CI?** Search Actions for a `CI` `workflow_dispatch` run on the `agent/issue-N-run-ID` branch. This bypasses GitHub's `GITHUB_TOKEN` event suppression.
+- **No independent review?** Fork PRs cannot use the secret in ordinary `pull_request` workflows; manually dispatch **Agent review** from the Actions tab with the PR number. Otherwise enable automation and check that the PR/run matches an eligible trigger. Codex Action enforces actor permissions; the workflow-run review only allowlists `github-actions[bot]`.
+- **Private server needed?** No. The [optional Controller](../server/README.md) adds persistent backlog state and quotas but should not be started alongside direct issue-label dispatch for the same Issues.
+
+Refer to [SERVERLESS.md](SERVERLESS.md) for the complete trigger/permission matrix.

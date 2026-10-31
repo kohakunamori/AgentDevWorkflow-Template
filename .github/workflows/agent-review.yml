@@ -1,8 +1,9 @@
 name: Agent review
+run-name: "Review PR #${{ github.event.pull_request.number || inputs.pr_number || 'generated' }}"
 
 on:
   pull_request:
-    types: [labeled]
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
   workflow_run:
     workflows: ["Agent implement"]
     types: [completed]
@@ -10,8 +11,12 @@ on:
     inputs:
       pr_number:
         description: Pull request number for independent review
-        type: string
         required: true
+        type: string
+
+concurrency:
+  group: "agent-review-${{ github.event.pull_request.number || inputs.pr_number || github.event.workflow_run.id }}"
+  cancel-in-progress: true
 
 permissions: {}
 
@@ -19,13 +24,18 @@ jobs:
   analyze:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.action == 'labeled' &&
-       github.event.label.name == 'agent:review' &&
-       vars.AGENT_AUTOMATION_ENABLED == 'true') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'workflow_dispatch' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       vars.AGENT_AUTOMATION_ENABLED == 'true')
+      (vars.AGENT_AUTOMATION_ENABLED == 'true' &&
+       ((github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         ((github.event.action == 'labeled' &&
+           github.event.label.name == 'agent:review') ||
+          (github.event.pull_request.author_association == 'OWNER' ||
+           github.event.pull_request.author_association == 'MEMBER' ||
+           github.event.pull_request.author_association == 'COLLABORATOR'))) ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         (github.event.workflow_run.event == 'workflow_dispatch' ||
+          github.event.workflow_run.event == 'issues'))))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -35,41 +45,48 @@ jobs:
       pr_number: ${{ steps.context.outputs.pr_number }}
       final_message: ${{ steps.codex.outputs.final-message }}
     steps:
-      - name: Checkout trusted base code, not PR content
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
       - id: context
-        name: Fetch PR metadata and diff as untrusted data
+        name: Load PR metadata and diff as untrusted data
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
         run: |
+          set -euo pipefail
           if [[ -z "$PR_NUMBER" && "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]; then
-            # Match the Issue-specific branch created by this workflow run.
-            # Use the trusted PR list, not workflow_run-provided PR body text.
-            PR_NUMBER="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,headRefName --jq ".[] | select(.headRefName | endswith(\"-run-$SOURCE_RUN_ID\")) | .number" | head -n 1)"
+            PR_NUMBER="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+              --limit 200 --json number,headRefName \
+              --jq ".[] | select(.headRefName | endswith(\"-run-$SOURCE_RUN_ID\")) | .number" \
+              | head -n 1)"
           fi
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,headRefOid,baseRefOid,author > /tmp/pr-metadata.json
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json number,title,body,headRefOid,baseRefOid,author > /tmp/pr-metadata.json
           gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr.diff
           python - <<'PY'
           import json
           from pathlib import Path
           data = json.loads(Path("/tmp/pr-metadata.json").read_text())
           data["diff"] = Path("/tmp/pr.diff").read_text()
-          Path("agent-context.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
+          Path("agent-context.json").write_text(
+              json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
           PY
       - id: codex
-        name: Static read-only independent Codex review
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":read-only"
           prompt-file: agents/REVIEW.md
+          # A review triggered by the trusted implementation workflow may
+          # have github-actions[bot] as its actor. Only this specific bot is allowed.
+          allow-bot-users: "github-actions[bot]"
 
   post:
     needs: analyze
@@ -79,11 +96,13 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - name: Post AI findings as comment (not approval)
+      - name: Post advisory review (not a merge approval)
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.analyze.outputs.pr_number }}
           AGENT_MESSAGE: ${{ needs.analyze.outputs.final_message }}
+        shell: bash
         run: |
           printf '%s\n' "$AGENT_MESSAGE" > /tmp/review.md
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/review.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body-file /tmp/review.md

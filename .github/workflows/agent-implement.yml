@@ -1,31 +1,39 @@
 name: Agent implement
-run-name: "Implement Issue #${{ inputs.issue_number }} [req:${{ inputs.request_id || github.run_id }}]"
-
-concurrency:
-  group: "agent-implement-issue-${{ inputs.issue_number }}"
-  cancel-in-progress: false
+run-name: "Implement Issue #${{ inputs.issue_number || github.event.issue.number }} [req:${{ inputs.request_id || github.run_id }}]"
 
 on:
+  issues:
+    types: [labeled]
   workflow_dispatch:
     inputs:
-      request_id:
-        description: Unique controller dispatch token (optional)
-        type: string
-        required: false
       issue_number:
-        description: Approved Issue number to implement
+        description: Issue number (maintainer-approved)
         required: true
         type: string
+      request_id:
+        description: Optional idempotency token for an external controller
+        required: false
+        type: string
+
+concurrency:
+  group: "agent-implement-issue-${{ inputs.issue_number || github.event.issue.number }}"
+  cancel-in-progress: false
 
 permissions: {}
 
 jobs:
   implement:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.event.label.name == 'agent:approved' &&
+       vars.AGENT_AUTOMATION_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
       issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,24 +42,40 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Read approved Issue
+      - name: Validate issue, scope and duplicate PRs
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+        shell: bash
         run: |
-          [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]
+          set -euo pipefail
+          [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid Issue number"; exit 1; }
           gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,comments,labels,state > agent-context.json
-      - name: Generate candidate changes (no GitHub write token)
+          if [[ "$GH_EVENT_NAME" == "issues" ]]; then
+            python scripts/validate_agent_issue.py agent-context.json --require-label
+          else
+            python scripts/validate_agent_issue.py agent-context.json
+          fi
+          # A pending run is serialized by concurrency; a completed one
+          # must not generate another PR for the same Issue.
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 200 \
+            --json number,headRefName > /tmp/open-prs.json
+          python scripts/check_existing_pr.py /tmp/open-prs.json "$ISSUE_NUMBER"
+      - name: Generate candidate changes in a restricted workspace
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: agents/IMPLEMENT.md
-      - name: Package generated patch
+      - name: Export patch only (no secrets or write-capable GitHub token)
+        shell: bash
         run: |
-          git add -N -- src tests docs examples
-          git diff --binary HEAD -- src tests docs examples > agent.patch
-          python scripts/verify_agent_patch.py agent.patch
+          set -euo pipefail
+          git -c core.hooksPath=/dev/null add -N -- src tests docs examples
+          git -c core.hooksPath=/dev/null diff --no-ext-diff --binary HEAD -- src tests docs examples > /tmp/agent.patch
+          test -s /tmp/agent.patch
+          cp /tmp/agent.patch agent.patch
       - uses: actions/upload-artifact@v4
         with:
           name: implementation-patch
@@ -59,14 +83,44 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  publish:
+  verify:
     needs: implement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: implementation-patch
+      - name: Verify and apply candidate patch
+        run: |
+          set -euo pipefail
+          python scripts/verify_agent_patch.py agent.patch
+          git apply --check agent.patch
+          git apply --index agent.patch
+          python scripts/verify_agent_patch.py --staged verify
+      - name: Run unit tests in a disposable, unprivileged job
+        run: python -m unittest discover -s tests -v
+      - name: Verify template contracts
+        run: |
+          python scripts/check_template.py
+          python -m compileall -q src tests scripts server
+
+  publish:
+    needs: [implement, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
-      issues: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,30 +131,32 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: implementation-patch
-      - name: Validate, apply, commit and push a guarded patch
+      - name: Validate and commit without executing untrusted tests
         env:
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+        shell: bash
         run: |
           set -euo pipefail
-          [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]
           python scripts/verify_agent_patch.py agent.patch
           git apply --check agent.patch
           git apply --index agent.patch
           python scripts/verify_agent_patch.py --staged verify
           if git diff --cached --quiet; then
-            echo "No proposed source changes" >&2
+            echo "Empty change; no PR created" >&2
             exit 1
           fi
           branch="agent/issue-$ISSUE_NUMBER-run-$GITHUB_RUN_ID"
           git switch -c "$branch"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "agent: propose fix for issue #$ISSUE_NUMBER"
+          git -c core.hooksPath=/dev/null commit -m "agent: propose fix for issue #$ISSUE_NUMBER"
           git push origin "$branch"
-      - name: Open Draft PR (never auto-merge)
+      - name: Open Draft PR and dispatch CI on its actual head
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+        shell: bash
         run: |
           set -euo pipefail
           branch="agent/issue-$ISSUE_NUMBER-run-$GITHUB_RUN_ID"
@@ -109,10 +165,17 @@ jobs:
 
           Closes #$ISSUE_NUMBER
 
-          **Status:** Draft; untrusted generated code. Requires deterministic CI, independent review, and human authorization before merging.
+          **Status:** Draft until independent review and human sign-off.
+          **Evidence:** The verification job ran unit tests with read-only repository
+          permissions, no OpenAI API key, and no persisted checkout credentials.
+          Check that job's exact results and the new CI check on this PR head.
 
-          **Verification:** See CI logs and review the changed tests. A coding agent's own claims are not evidence of successful runtime verification.
-
-          **Security:** The publisher only accepted changes under src/, tests/, docs/ and examples/.
+          **Scope:** The publisher only accepts src/, tests/, docs/ and examples/.
+          It never executes the generated source with a GitHub write token.
           EOF
-          gh pr create --repo "$GITHUB_REPOSITORY" --draft --base main --head "$branch" --title "Agent proposal: Issue #$ISSUE_NUMBER" --body-file /tmp/pr.md
+          gh pr create --repo "$GITHUB_REPOSITORY" --draft --base main \
+            --head "$branch" --title "Agent proposal: Issue #$ISSUE_NUMBER" \
+            --body-file /tmp/pr.md
+          # GITHUB_TOKEN-created PRs do not reliably emit pull_request runs.
+          # workflow_dispatch is an explicit exception to the event recursion rule.
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
