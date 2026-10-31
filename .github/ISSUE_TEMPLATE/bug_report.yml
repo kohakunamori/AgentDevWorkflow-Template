@@ -1,0 +1,35 @@
+name: Bug report
+description: A reproducible defect to triage and fix
+title: "[Bug]: "
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What actually happened? Include safe logs, not tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps and inputs
+      description: Include exact versions and sanitized inputs.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Proposed acceptance checks
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Environment, constraints and risks
